@@ -1,0 +1,259 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Generate Android project
+        run: |
+          set -e
+          mkdir -p app/src/main/assets app/src/main/java/com/satellites/app app/src/main/res/drawable
+          cp index.html app/src/main/assets/index.html
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = 'Satellites'
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.satellites.app'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'com.satellites.app'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+              <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+              <application
+                  android:label="Satellites"
+                  android:icon="@drawable/ic_launcher"
+                  android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar"
+                  android:allowBackup="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path
+                  android:fillColor="#0071E3"
+                  android:pathData="M0,0h24v24h-24z" />
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:fillType="evenOdd"
+                  android:pathData="M12,4C8.7,4 6,6.7 6,10c0,4.5 6,10 6,10s6,-5.5 6,-10c0,-3.3 -2.7,-6 -6,-6zM12,12.2c-1.2,0 -2.2,-1 -2.2,-2.2s1,-2.2 2.2,-2.2 2.2,1 2.2,2.2 -1,2.2 -2.2,2.2z" />
+          </vector>
+          EOF
+
+          cat > app/src/main/java/com/satellites/app/MainActivity.java <<'EOF'
+          package com.satellites.app;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.pm.PackageManager;
+          import android.os.Bundle;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import java.io.ByteArrayInputStream;
+          import java.io.InputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.util.HashMap;
+
+          public class MainActivity extends Activity {
+              private WebView web;
+              private PermissionRequest pendingCam;
+              private GeolocationPermissions.Callback pendingGeo;
+              private String pendingOrigin;
+
+              private boolean has(String p) {
+                  return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
+              }
+
+              private boolean hasLoc() {
+                  return has(Manifest.permission.ACCESS_FINE_LOCATION)
+                      || has(Manifest.permission.ACCESS_COARSE_LOCATION);
+              }
+
+              private void loadPage() {
+                  web.loadUrl("file:///android_asset/index.html");
+              }
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  web = new WebView(this);
+                  setContentView(web);
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setGeolocationEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest req) {
+                          try {
+                              String host = req.getUrl().getHost();
+                              if (host != null && host.endsWith("celestrak.org") && "GET".equals(req.getMethod())) {
+                                  HttpURLConnection c = (HttpURLConnection) new URL(req.getUrl().toString()).openConnection();
+                                  c.setConnectTimeout(10000);
+                                  c.setReadTimeout(20000);
+                                  c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) Satellites");
+                                  int code = c.getResponseCode();
+                                  InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                                  if (in == null) in = new ByteArrayInputStream(new byte[0]);
+                                  HashMap<String, String> h = new HashMap<String, String>();
+                                  h.put("Access-Control-Allow-Origin", "*");
+                                  return new WebResourceResponse("text/plain", "utf-8", code, code >= 400 ? "Error" : "OK", h, in);
+                              }
+                          } catch (Exception e) {
+                          }
+                          return null;
+                      }
+                  });
+
+                  web.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb) {
+                          if (hasLoc()) {
+                              cb.invoke(origin, true, true);
+                          } else {
+                              pendingOrigin = origin;
+                              pendingGeo = cb;
+                              MainActivity.this.requestPermissions(new String[]{
+                                  Manifest.permission.ACCESS_FINE_LOCATION,
+                                  Manifest.permission.ACCESS_COARSE_LOCATION}, 1);
+                          }
+                      }
+
+                      @Override
+                      public void onPermissionRequest(PermissionRequest r) {
+                          if (has(Manifest.permission.CAMERA)) {
+                              r.grant(r.getResources());
+                          } else {
+                              pendingCam = r;
+                              MainActivity.this.requestPermissions(new String[]{Manifest.permission.CAMERA}, 2);
+                          }
+                      }
+                  });
+
+                  if (hasLoc()) {
+                      loadPage();
+                  } else {
+                      requestPermissions(new String[]{
+                          Manifest.permission.ACCESS_FINE_LOCATION,
+                          Manifest.permission.ACCESS_COARSE_LOCATION}, 0);
+                  }
+              }
+
+              @Override
+              public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+                  boolean ok = false;
+                  for (int r : res) {
+                      if (r == PackageManager.PERMISSION_GRANTED) ok = true;
+                  }
+                  if (code == 0) {
+                      loadPage();
+                  }
+                  if (code == 1 && pendingGeo != null) {
+                      pendingGeo.invoke(pendingOrigin, ok, ok);
+                      pendingGeo = null;
+                  }
+                  if (code == 2 && pendingCam != null) {
+                      if (ok) {
+                          pendingCam.grant(pendingCam.getResources());
+                      } else {
+                          pendingCam.deny();
+                      }
+                      pendingCam = null;
+                  }
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Satellites-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Satellites APK ${{ github.run_number }}
+          files: app/build/outputs/apk/debug/app-debug.apk

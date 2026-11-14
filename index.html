@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Satellites</title>
+<meta name="theme-color" content="#0071e3">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.1.3/satellite.min.js"></script>
+<style>
+:root{--bg:#fff;--tx:#1d1d1f;--mut:#86868b;--ac:#0071e3;--land:#f0f0f3;--dot:#d2d2d7;--sep:#ececf0;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--tx:#f5f5f7;--mut:#86868b;--ac:#2997ff;--land:#1c1c1e;--dot:#3a3a3c;--sep:#1c1c1e}}
+:root[data-theme="dark"]{--bg:#000;--tx:#f5f5f7;--mut:#86868b;--ac:#2997ff;--land:#1c1c1e;--dot:#3a3a3c;--sep:#1c1c1e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:17px/1.3 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.w{max-width:480px;margin:0 auto;padding:20px 20px 40px}
+svg.map{display:block;width:100%;height:auto;border-radius:16px;background:var(--land)}
+select{display:block;width:100%;margin:22px 0 0;font:600 28px/1.1 inherit;font-family:inherit;letter-spacing:-.5px;color:var(--tx);background:none;border:0;padding:0;appearance:none;-webkit-appearance:none;text-align:left}
+.m{color:var(--mut);font-size:15px;margin:6px 0 0}
+.hero{display:flex;align-items:center;justify-content:space-between;margin-top:22px}
+.big{font-size:44px;font-weight:700;letter-spacing:-1.5px;line-height:1}
+#arr{width:64px;height:64px;transition:transform .08s linear}
+.row{display:flex;justify-content:space-between;align-items:baseline;padding:14px 0;border-top:1px solid var(--sep)}
+.row span{color:var(--mut)}
+.row b{font-size:20px;font-weight:600;letter-spacing:-.3px}
+.list{margin-top:22px}
+</style>
+</head>
+<body>
+<button id="locbtn" aria-label="Localisation" hidden style="position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:12px;z-index:5;width:44px;height:44px;padding:0;border:0;border-radius:50%;background:var(--land);color:#8e8e93;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.25)"><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></button>
+<div class="w">
+<svg class="map" id="map" viewBox="0 0 360 180"></svg>
+<select id="sel" aria-label="Satellite"></select>
+<p class="m" id="sub"></p>
+<div id="info" hidden>
+<div class="hero"><div><div class="big" id="dir"></div><p class="m" id="vis"></p><p class="m" id="wk"></p></div>
+<svg id="arr" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="var(--sep)" stroke-width="5"/><path d="M50 12 L63 54 L50 46 L37 54 Z" fill="var(--ac)"/></svg></div>
+<div class="list">
+<div class="row"><span>À pied</span><b id="t1"></b></div>
+<div class="row"><span>À vélo</span><b id="t2"></b></div>
+<div class="row"><span>En voiture</span><b id="t3"></b></div>
+</div>
+<p class="m" id="d"></p><button id="cam" style="width:100%;margin-top:14px;padding:15px;border:0;border-radius:14px;background:var(--ac);color:#fff;font-weight:600;font-size:17px;font-family:inherit">Ouvrir la caméra</button>
+</div>
+<p class="m" id="src"></p>
+<div id="ar" hidden style="position:fixed;inset:0;z-index:9;background:#000"><video id="v" playsinline muted autoplay style="width:100%;height:100%;object-fit:cover"></video><canvas id="cv" style="position:absolute;inset:0;width:100%;height:100%"></canvas><button id="x" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);right:14px;width:auto;padding:10px 16px;border:0;border-radius:20px;background:rgba(255,255,255,.25);color:#fff;font-weight:600;font-size:16px;font-family:inherit">Fermer</button><div id="at" style="position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);text-align:center;color:#fff;font:600 17px -apple-system,system-ui,sans-serif;text-shadow:0 1px 4px #000"></div></div>
+</div>
+<script>
+var sats=[],obs=null,heading=null,lastAz=null,lastS=null,pitch=null,demo=false,D=Math.PI/180;
+function $(i){return document.getElementById(i)}
+var LAND=[
+[[-168,66],[-140,70],[-120,70],[-95,72],[-80,70],[-62,60],[-55,50],[-67,45],[-76,35],[-81,25],[-97,26],[-97,20],[-87,21],[-83,10],[-78,8],[-92,15],[-105,20],[-115,30],[-124,40],[-125,49],[-135,58],[-150,61],[-165,60]],
+[[-55,60],[-45,60],[-20,70],[-20,82],[-60,82],[-70,76]],
+[[-78,8],[-62,11],[-50,0],[-35,-6],[-40,-22],[-48,-28],[-58,-38],[-65,-42],[-68,-55],[-74,-50],[-72,-30],[-71,-18],[-81,-5]],
+[[-10,36],[-9,43],[-2,48],[5,53],[10,57],[18,60],[25,66],[40,68],[70,73],[100,77],[140,72],[170,70],[180,66],[160,58],[142,50],[135,43],[127,35],[122,40],[120,30],[108,20],[105,10],[100,2],[98,15],[90,22],[80,15],[77,8],[72,20],[58,24],[50,28],[43,13],[35,28],[35,36],[26,38],[22,36],[15,40],[8,44],[0,38]],
+[[-17,21],[-10,35],[10,37],[32,31],[43,12],[51,12],[40,-5],[40,-15],[33,-26],[20,-35],[12,-18],[9,4],[-8,4],[-17,14]],
+[[114,-22],[130,-12],[142,-11],[153,-26],[147,-38],[135,-35],[115,-34]],
+[[-180,-85],[180,-85],[180,-71],[-180,-71]]
+];
+var LANDSVG=LAND.map(function(p){return '<path d="M'+p.map(function(q){return (q[0]+180)+" "+(90-q[1])}).join("L")+'Z" fill="var(--bg)" opacity=".75"/>'}).join("");
+function parse(t){
+  var L=t.split(/\r?\n/).map(function(s){return s.trim()}).filter(Boolean),o=[];
+  for(var i=0;i<L.length-1;i++){
+    if(L[i].indexOf("1 ")===0&&L[i+1].indexOf("2 ")===0){
+      var n=(i>0&&L[i-1].indexOf("1 ")!==0&&L[i-1].indexOf("2 ")!==0)?L[i-1].replace(/^0 /,""):"Satellite "+L[i].substr(2,5);
+      try{o.push({name:n,key:L[i].substr(2,5),rec:satellite.twoline2satrec(L[i],L[i+1])})}catch(e){}
+    }
+  }
+  return o;
+}
+function demoSats(){
+  var n=new Date(),y=n.getUTCFullYear(),d=(n-Date.UTC(y,0,0))/864e5,ep=String(y%100).padStart(2,"0")+d.toFixed(8).padStart(12,"0"),o=[],k=0;
+  for(var p=0;p<6;p++)for(var s=0;s<5;s++){
+    k++;var id=String(90000+k),ma=(s*72+p*12)%360;
+    var l1="1 "+id+"U 00000A   "+ep+" .00000000 00000-0 00000-0 0  9990";
+    var l2="2 "+id+" "+(55).toFixed(4).padStart(8)+" "+(p*60).toFixed(4).padStart(8)+" 0001000 "+(0).toFixed(4).padStart(8)+" "+ma.toFixed(4).padStart(8)+" "+(2.00563).toFixed(8).padStart(11)+"00001"+"0";
+    try{o.push({name:"Satellite "+k,key:id,rec:satellite.twoline2satrec(l1,l2)})}catch(e){}
+  }
+  return o;
+}
+function setData(list){
+  var seen={};sats=[];
+  list.forEach(function(s){if(!seen[s.key]){seen[s.key]=1;sats.push(s)}});
+  sats.sort(function(a,b){return a.name<b.name?-1:1});
+  $("sel").innerHTML='<option value="auto">Le plus proche</option>'+sats.map(function(s,i){return '<option value="'+i+'">'+s.name+'</option>'}).join("");
+  $("src").textContent=demo?"Mode démo : orbites approximatives, pas les vrais satellites. Les données réelles n’ont pas pu être chargées ici."+(loadErr?" ("+loadErr+")":""):sats.length+" satellites · données CelesTrak";
+  tick();
+}
+var loadErr="";
+function load(){
+  var g=["gps-ops","galileo","glo-ops","beidou"],ok=[],c=new AbortController();
+  setTimeout(function(){c.abort()},12000);
+  function U(x){return "https://celestrak.org/NORAD/elements/gp.php?GROUP="+x+"&FORMAT=tle"}
+  function get(u){return fetch(u,{signal:c.signal}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.text()})}
+  Promise.all(g.map(function(x){
+    return get(U(x)).catch(function(e){loadErr=String(e&&e.message||e);return get("https://api.allorigins.win/raw?url="+encodeURIComponent(U(x)))}).then(function(t){ok=ok.concat(parse(t))}).catch(function(e){loadErr=String(e&&e.message||e)})
+  })).then(function(){
+    if(ok.length){demo=false;setData(ok)}else{demo=true;setData(demoSats())}
+  });
+}
+load();
+var locMsg="";
+function loc(){
+  if(!navigator.geolocation){locMsg="Localisation non disponible sur cet appareil.";tick();return}
+  locMsg="Demande de localisation…";tick();
+  try{navigator.geolocation.getCurrentPosition(function(p){
+    obs={lat:p.coords.latitude,lon:p.coords.longitude};locMsg="";tick();
+  },function(e){
+    obs=null;
+    if(e.code===1){locMsg=(window.self!==window.top)?"Bloquée par l’aperçu : ouvre le fichier directement dans Safari ou Chrome.":"Localisation refusée. Autorise-la dans les réglages du navigateur, puis rouvre la page."}else{locMsg="Position introuvable (code "+e.code+"), nouvel essai…";setTimeout(loc,3000)}
+    tick();
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0})}catch(e){locMsg="Localisation indisponible ici.";tick()}
+}
+document.addEventListener("visibilitychange",function(){if(!document.hidden)loc()});
+$("locbtn").onclick=loc;
+loc();
+["touchstart","click"].forEach(function(t){document.addEventListener(t,function(){if(!obs)loc()},{passive:true})});
+function h(e){
+  if(e.beta!=null)pitch=e.beta;
+  if(e.webkitCompassHeading!=null)heading=e.webkitCompassHeading;
+  else if(e.alpha!=null&&(e.absolute||e.type==="deviceorientationabsolute"))heading=(360-e.alpha)%360;
+  if(lastAz!==null&&heading!==null)$("arr").style.transform="rotate("+(lastAz-heading)+"deg)";
+}
+$("arr").onclick=function(){
+  function on(){window.addEventListener("deviceorientationabsolute",h,true);window.addEventListener("deviceorientation",h,true)}
+  try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission){DeviceOrientationEvent.requestPermission().then(function(r){if(r==="granted")on()})}else on()}catch(e){}
+};
+$("sel").onchange=tick;
+try{if(!(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)){window.addEventListener("deviceorientationabsolute",h,true);window.addEventListener("deviceorientation",h,true)}}catch(e){}
+function brg(a,b,c,d){
+  var y=Math.sin((d-b)*D)*Math.cos(c*D),x=Math.cos(a*D)*Math.sin(c*D)-Math.sin(a*D)*Math.cos(c*D)*Math.cos((d-b)*D);
+  return (Math.atan2(y,x)/D+360)%360;
+}
+function dist(a,b,c,d){
+  var p=(c-a)*D,q=(d-b)*D,k=Math.sin(p/2)*Math.sin(p/2)+Math.cos(a*D)*Math.cos(c*D)*Math.sin(q/2)*Math.sin(q/2);
+  return 6371*2*Math.atan2(Math.sqrt(k),Math.sqrt(1-k));
+}
+function card(n){return ["N","NE","E","SE","S","SO","O","NO"][Math.round(n/45)%8]}
+function fmt(n){return Math.round(n).toLocaleString("fr-CA")}
+function dur(km,v){
+  var m=km/v*60;
+  if(m<1)return "< 1 min";
+  if(m<60)return Math.round(m)+" min";
+  var hh=m/60;
+  if(hh<48)return Math.floor(hh)+" h "+String(Math.round(m%60)).padStart(2,"0");
+  return fmt(hh/24)+" jours";
+}
+function tick(){
+  if(!sats.length){$("map").innerHTML=LANDSVG;$("locbtn").hidden=!!obs;if(!obs&&locMsg)$("sub").textContent=locMsg;return}
+  var now=new Date(),g=satellite.gstime(now),v=$("sel").value,R=[],best=-1,up=0,dots="";
+  sats.forEach(function(s,i){
+    var pv;try{pv=satellite.propagate(s.rec,now)}catch(e){}
+    if(!pv||!pv.position){R[i]=null;return}
+    var gd=satellite.eciToGeodetic(pv.position,g),la=satellite.degreesLat(gd.latitude),lo=satellite.degreesLong(gd.longitude),el=null,az=0,d=null;
+    if(obs){var k=satellite.ecfToLookAngles({latitude:obs.lat*D,longitude:obs.lon*D,height:0},satellite.eciToEcf(pv.position,g));el=k.elevation/D;az=k.azimuth/D;d=dist(obs.lat,obs.lon,la,lo);if(el>0)up++;if(best<0||d<R[best].d)best=i}
+    R[i]={la:la,lo:lo,el:el,az:az,d:d};
+  });
+  var idx=(v==="auto"||v==="")?best:+v,S=idx>=0?R[idx]:null;
+  R.forEach(function(r,i){if(r&&i!==idx)dots+='<circle cx="'+(r.lo+180).toFixed(1)+'" cy="'+(90-r.la).toFixed(1)+'" r="1.3" fill="'+(r.el!==null&&r.el>0?'var(--ac)':'var(--dot)')+'"/>'});
+  var svg=LANDSVG+dots;
+  if(obs){
+    var ox=obs.lon+180,oy=90-obs.lat;
+    if(S&&Math.abs(S.lo-obs.lon)<180)svg+='<line x1="'+ox+'" y1="'+oy+'" x2="'+(S.lo+180)+'" y2="'+(90-S.la)+'" stroke="var(--ac)" stroke-width=".6" stroke-dasharray="2 2"/>';
+    svg+='<circle cx="'+ox+'" cy="'+oy+'" r="2.8" fill="#30d158" stroke="#fff" stroke-width=".8"/>';
+  }
+  if(S)svg+='<circle cx="'+(S.lo+180)+'" cy="'+(90-S.la)+'" r="5" fill="var(--ac)" opacity=".25"/><circle cx="'+(S.lo+180)+'" cy="'+(90-S.la)+'" r="2.5" fill="var(--ac)" stroke="#fff" stroke-width=".8"/>';
+  $("map").innerHTML=svg;
+  $("locbtn").hidden=!!obs;
+  if(!obs){$("sub").textContent=locMsg||"Autorise la localisation pour trouver le plus proche";return}
+  $("sub").textContent=(v==="auto"&&idx>=0?"Le plus proche : "+sats[idx].name+" · ":"")+up+" au-dessus de l’horizon";
+  if(!S)return;
+  $("info").hidden=false;
+  var dk=S.d,bd=brg(obs.lat,obs.lon,S.la,S.lo);
+  var rel=heading==null?null:((S.az-heading+540)%360)-180;
+  $("dir").textContent=heading==null?card(S.az)+" "+S.az.toFixed(0)+"°":card(heading)+" "+heading.toFixed(0)+"°";
+  lastS={az:S.az,el:S.el,name:sats[idx].name};
+  $("vis").innerHTML=(heading==null?"Touche la flèche pour la boussole · ":'<span style="color:#30d158;font-weight:600">Cible '+card(S.az)+" "+S.az.toFixed(0)+"° · "+(Math.abs(rel)<5?"droit devant":"tourne de "+Math.abs(rel).toFixed(0)+"° à "+(rel>0?"droite":"gauche"))+"</span> · ")+(S.el>0?S.el.toFixed(0)+"° de hauteur":"sous l’horizon");
+  $("wk").textContent="Au sol, va vers le "+card(bd)+" ("+bd.toFixed(0)+"°)";
+  $("t1").textContent=dur(dk,5);$("t2").textContent=dur(dk,15);$("t3").textContent=dur(dk,60);
+  $("d").textContent="Point au sol sous le satellite : "+fmt(dk)+" km. Estimation en ligne droite, sans tenir compte des routes ni de la mer.";
+  lastAz=S.az;$("arr").style.transform="rotate("+(S.az-(heading==null?0:heading))+"deg)";
+}
+var camS=null,raf=0;
+$("cam").onclick=function(){try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)DeviceOrientationEvent.requestPermission().then(function(r){if(r==="granted")window.addEventListener("deviceorientation",h,true)});navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false}).then(function(st){camS=st;$("v").srcObject=st;$("ar").hidden=false;draw()}).catch(function(){$("d").textContent="Caméra indisponible ici : autorisation refusée ou bloquée par la page."})}catch(e){$("d").textContent="Caméra indisponible ici."}};
+$("x").onclick=function(){$("ar").hidden=true;cancelAnimationFrame(raf);if(camS)camS.getTracks().forEach(function(t){t.stop()})};
+function draw(){var c=$("cv"),W=c.clientWidth,H=c.clientHeight,r=window.devicePixelRatio||1;if(c.width!==Math.round(W*r)){c.width=Math.round(W*r);c.height=Math.round(H*r)}var x=c.getContext("2d");x.setTransform(r,0,0,r,0,0);x.clearRect(0,0,W,H);var S=lastS,t="Active la boussole du téléphone";
+if(S&&heading!=null&&pitch!=null){var ce=pitch-90,dA=((S.az-heading+540)%360)-180,dE=S.el-ce,f=H/(2*Math.tan(32*D)),cl=function(v,m){return Math.max(-m,Math.min(m,v))},px=W/2+f*Math.tan(cl(dA,80)*D*Math.cos(cl(ce,80)*D)),py=H/2-f*Math.tan(cl(dE,80)*D);
+if(S.el<0)t="Sous l’horizon : de l’autre côté de la Terre";
+else if(px>40&&px<W-40&&py>40&&py<H-40){x.strokeStyle="#30d158";x.lineWidth=3;x.beginPath();x.arc(px,py,34,0,7);x.stroke();x.fillStyle="#30d158";x.font="600 15px -apple-system,system-ui,sans-serif";x.textAlign="center";x.fillText(S.name,px,py-44);t="Le cercle montre où il devrait être"}
+else t=(Math.abs(dA)>8?"Tourne à "+(dA>0?"droite":"gauche")+" de "+Math.abs(dA).toFixed(0)+"°":"")+(Math.abs(dE)>8?(Math.abs(dA)>8?" · ":"")+(dE>0?"Lève":"Baisse")+" de "+Math.abs(dE).toFixed(0)+"°":"")}
+$("at").textContent=t;raf=requestAnimationFrame(draw)}
+tick();setInterval(tick,200);
+</script>
+</body>
+</html>
